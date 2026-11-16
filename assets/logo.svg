@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ScoreForge</title>
+  <desc id="desc">A lime robot anvil with bright scoreboard eyes and a coral forging spark on a plain midnight background.</desc>
+  <rect width="512" height="512" fill="#101321"/>
+  <!-- One bold mascot: the forge itself is alive. -->
+  <path d="M268 46 282 80 316 94 282 108 268 142 254 108 220 94 254 80Z" fill="#FF715B" stroke="#101321" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M111 169H407V223L342 283H306V330L358 367V407H154V367L206 330V283H166C115 283 70 243 55 207H111Z" fill="#D9FF57" stroke="#101321" stroke-width="14" stroke-linejoin="round"/>
+  <path d="M138 169H407V199H138Z" fill="#F3FFBC"/>
+  <path d="M173 220H214V254H173ZM264 220H305V254H264Z" fill="#101321"/>
+  <path d="M223 282H256" fill="none" stroke="#101321" stroke-width="12" stroke-linecap="round"/>
+  <path d="M207 369H305" fill="none" stroke="#101321" stroke-width="12" stroke-linecap="round"/>
+  <path d="M155 407H357" fill="none" stroke="#F3FFBC" stroke-width="8"/>
+</svg>
