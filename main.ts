@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // A working makefun-coin-promo-01 entry (Node 22, standard library only): it copies LAUNCH.json from the repository
 // root to /output/LAUNCH.json, where the gate reads it. That is all the program has to do. The entry is the coin
 // itself: your agent launches it on pump.fun, LAUNCH.json names its mint and the signature of the transaction that

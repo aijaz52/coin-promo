@@ -101,7 +101,7 @@ async function main() {
       publicKey: wallet.publicKey.toBase58(), action: 'create',
       tokenMetadata: { uri, name, symbol, decimals: 6 },
       mint: mint.publicKey.toBase58(), denominatedInSol: 'true',
-      amount: 1, slippage: 10, priorityFee: 0.0005, pool: 'pump',
+      amount: 0.0001, slippage: 10, priorityFee: 0.0005, pool: 'pump',
     }),
     signal: AbortSignal.timeout(60_000),
   });
