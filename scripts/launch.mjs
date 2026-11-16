@@ -1,22 +1,36 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { inspect } from 'node:util';
+import { inspect, promisify } from 'node:util';
+import { execFile } from 'node:child_process';
 
 const require = createRequire('/tmp/solanadeps/node_modules/launch.cjs');
 const root = new URL('../', import.meta.url);
 const website = 'https://make.fun/bounty/makefun-coin-promo-01';
+const run = promisify(execFile);
+const uploadEndpoints = [
+  'https://pump.fun/api/ipfs',
+  'https://frontend-api.pump.fun/api/ipfs',
+  'https://front-end-api.pump.fun/api/ipfs',
+  'https://www.pump.fun/api/ipfs',
+];
+const browserHeaders = {
+  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  Accept: 'application/json, text/plain, */*',
+};
 let connection;
 let submittedSignature;
 
 async function main() {
-  if (!process.argv[2]) throw new Error('Usage: node scripts/launch.mjs <keypair.json>');
+  if (!process.argv[2]) throw new Error('Usage: node scripts/launch.mjs <keypair.json> [raw-content-base-url]');
+  const rawBase = new URL(`${(process.argv[3] || 'https://raw.githubusercontent.com/aijaz52/coin-promo/main').replace(/\/+$/, '')}/`);
+  if (rawBase.protocol !== 'https:') throw new Error('Raw content base URL must use HTTPS');
   const { Keypair, Connection, VersionedTransaction } = require('@solana/web3.js');
   const secret = JSON.parse(await readFile(process.argv[2], 'utf8'));
   if (!Array.isArray(secret) || secret.length !== 64 ||
       !secret.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
     throw new Error('Keypair file must contain a JSON array of 64 byte values');
   }
-  const wallet = Keypair.fromSecretKey(Uint8Array.from(secret));
+  const wallet = await Keypair.fromSecretKey(Uint8Array.from(secret));
   const concept = await readFile(new URL('assets/concept.md', root), 'utf8');
   const name = concept.match(/^# (.+)$/m)?.[1]?.trim();
   const symbol = concept.match(/^Ticker: (.+)$/m)?.[1]?.trim();
@@ -26,18 +40,14 @@ async function main() {
     throw new Error('Concept description must contain the bounty URL on its own line');
   }
   const logo = await readFile(new URL('assets/logo.png', root));
-  async function upload(includeEmptySocials) {
+  async function upload(endpoint) {
     const form = new FormData();
     form.append('file', new Blob([logo], { type: 'image/png' }), 'logo.png');
     for (const [field, value] of Object.entries({ name, symbol, description, website })) {
       form.append(field, value);
     }
-    if (includeEmptySocials) {
-      form.append('twitter', '');
-      form.append('telegram', '');
-    }
-    const response = await fetch('https://pump.fun/api/ipfs', {
-      method: 'POST', body: form, signal: AbortSignal.timeout(60_000),
+    const response = await fetch(endpoint, {
+      method: 'POST', headers: browserHeaders, body: form, signal: AbortSignal.timeout(60_000),
     });
     const text = await response.text();
     if (!response.ok) throw new Error(`IPFS upload HTTP ${response.status}: ${text}`);
@@ -47,15 +57,43 @@ async function main() {
     return uri;
   }
   let uri;
-  try {
-    uri = await upload(true);
-  } catch (error) {
-    console.error('IPFS upload with empty social fields failed:', error);
-    console.error('Retrying IPFS upload without twitter and telegram.');
-    uri = await upload(false);
+  for (const endpoint of uploadEndpoints) {
+    console.log(`Trying metadata upload: ${endpoint}`);
+    try {
+      uri = await upload(endpoint);
+      console.log(`Metadata uploaded: ${uri}`);
+      break;
+    } catch (error) {
+      console.error(`Metadata upload failed at ${endpoint}:`, error);
+    }
   }
-  console.log(`Metadata uploaded: ${uri}`);
-  const mint = Keypair.generate();
+  if (!uri) {
+    const metadata = { name, symbol, description, image: new URL('assets/logo.png', rawBase).href };
+    await writeFile(new URL('assets/metadata.json', root), `${JSON.stringify(metadata, null, 2)}\n`);
+    const git = async (...args) => run('git', args, { cwd: root });
+    for (const args of [['status', '--short'], ['diff'], ['log', '--oneline', '-10']]) {
+      await git(...args);
+    }
+    await git('add', '--', 'assets/metadata.json');
+    let changed = false;
+    try {
+      await git('diff', '--cached', '--quiet', '--', 'assets/metadata.json');
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      changed = true;
+    }
+    if (changed) {
+      console.log((await git('commit', '--only', '-m', 'Add GitHub fallback token metadata', '--', 'assets/metadata.json')).stdout.trim());
+    } else {
+      console.log('Fallback metadata is already committed.');
+    }
+    uri = new URL('assets/metadata.json', rawBase).href;
+    console.log(`GitHub metadata fallback: ${uri}`);
+    console.log('The repo must be pushed to GitHub first so assets/metadata.json and assets/logo.png are publicly available at these raw URLs.');
+    console.log('Continuing with the create transaction using the GitHub metadata URI.');
+  }
+  const mint = await Keypair.generate();
+  console.log(`Requesting create transaction from https://pumpportal.fun/api/trade-local (metadata: ${uri})`);
   const response = await fetch('https://pumpportal.fun/api/trade-local', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -67,7 +105,8 @@ async function main() {
     }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`PumpPortal HTTP ${response.status}: ${await response.text()}`);
+  if (!response.ok) throw new Error(`trade-local HTTP ${response.status}: ${await response.text()}`);
+  console.log(`trade-local HTTP ${response.status}: received create transaction`);
   const bytes = Buffer.from(await response.arrayBuffer());
   const contentType = response.headers.get('content-type') ?? '';
   let serialized = bytes;
@@ -80,8 +119,9 @@ async function main() {
     serialized = Buffer.from(bytes.toString('utf8').trim(), 'base64');
   }
   const transaction = VersionedTransaction.deserialize(serialized);
-  transaction.sign([mint, wallet]);
+  await transaction.sign([mint, wallet]);
   connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
+  console.log('Submitting signed create transaction with RPC preflight enabled.');
   submittedSignature = await connection.sendRawTransaction(transaction.serialize(), {
     skipPreflight: false, preflightCommitment: 'confirmed',
   });
